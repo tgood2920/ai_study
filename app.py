@@ -104,50 +104,65 @@ for msg in st.session_state["messages"]:
 
 # ★ 여기가 핵심: 사용자 입력 처리 및 스트리밍
 if user_input := st.chat_input("질문해 보세요!"):
-    # 1. 사용자 메시지 표시
+    # 1. 사용자 메시지 화면 표시
     st.chat_message("user").write(user_input)
     st.session_state["messages"].append(HumanMessage(content=user_input))
 
-    # 2. AI 답변 생성 (스트리밍)
+    # 2. AI 답변 생성
     with st.chat_message("assistant"):
-        # 빈 박스를 먼저 만들어서 여기다가 글자를 하나씩 채울 겁니다.
         message_placeholder = st.empty()
         full_response = ""
         
-        # (1) 검색 단계: 검색하는 동안은 스피너를 보여줍니다.
+        # (1) 검색 단계
         with st.spinner("교과서 뒤적이는 중... 📖"):
             retriever = st.session_state["retriever"]
             retrieved_docs = retriever.invoke(user_input)
             context = "\n\n".join([doc.page_content for doc in retrieved_docs])
         
-        # (2) 생성 단계: 검색이 끝나면 바로 스트리밍 시작
-        prompt_template = ChatPromptTemplate.from_template("""
+        # (2) [New] 대화 기록 가져오기 (최근 3개만 가져와서 기억력 주입)
+        # 너무 많이 가져오면 토큰 비용이 드니, 최근 대화(퀴즈 낸 거)만 가져옵니다.
+        chat_history = []
+        for msg in st.session_state["messages"][-3:]: 
+            role = "AI 선생님" if isinstance(msg, AIMessage) else "학생"
+            chat_history.append(f"{role}: {msg.content}")
+        history_text = "\n".join(chat_history)
+
+        # (3) 프롬프트 구성 (대화 기록 포함)
+        prompt_template = ChatPromptTemplate.from_template(f"""
         너는 친절한 선생님 '코디'야. 
-        아래 [참고 자료]를 바탕으로 학생의 질문에 답변해줘.
         
+        [지시 사항]:
+        1. 아래 [대화 기록]을 보고 흐름을 파악해. (네가 방금 퀴즈를 냈다면 정답을 확인해줘!)
+        2. [참고 자료]에 없는 내용은 솔직히 모른다고 해.
+        3. 학생의 질문이나 대답에 친절하게 반응해줘.
+
+        [대화 기록]:
+        {{history}}
+
         [참고 자료]:
-        {context}
+        {{context}}
         
-        질문: {input}
+        학생 질문: {{input}}
         """)
         
+        # (4) LLM 호출
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
         chain = prompt_template | llm
         
-        # ★ 강제 스트리밍 루프
-        # chain.stream()에서 조각(chunk)이 나올 때마다 화면을 갱신합니다.
-        chunks = chain.stream({"context": context, "input": user_input})
+        # history와 context, input을 모두 넣어줍니다.
+        chunks = chain.stream({
+            "history": history_text, 
+            "context": context, 
+            "input": user_input
+        })
         
+        # (5) 스트리밍 출력
         for chunk in chunks:
-            # content가 있는 경우에만 처리
             if chunk.content:
                 full_response += chunk.content
-                # ▌ 문자를 뒤에 붙여서 커서가 깜빡이는 느낌을 줍니다.
                 message_placeholder.markdown(full_response + "▌")
-                # 너무 빠르면 눈에 안 보일 수 있으니 아주 찰나의 딜레이 (선택사항)
-                time.sleep(0.05)
+                time.sleep(0.03) # 타자 속도
         
-        # 다 끝나면 커서(▌)를 없애고 최종본 확정
         message_placeholder.markdown(full_response)
     
     # 3. 세션에 저장

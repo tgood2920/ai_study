@@ -1,0 +1,5 @@
+primaryColor = "#4B0082"   # 포인트 컬러 (인디고 보라색)
+backgroundColor = "#F0F2F6" # 배경색 (연한 회색)
+secondaryBackgroundColor = "#FFFFFF" # 사이드바 배경색
+textColor = "#31333F"      # 글자색
+font = "sans serif"        # 폰트
