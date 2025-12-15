@@ -11,8 +11,8 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # 1. 환경 설정
 load_dotenv()
-st.set_page_config(page_title="코디 선생님 (Live)", page_icon="👨‍🏫")
-st.title("👨‍🏫 실시간으로 가르쳐주는 '코디'")
+st.set_page_config(page_title="만능 AI 튜터", page_icon="🎓")
+st.title("🎓 무엇이든 가르쳐 드려요!")
 
 # 2. PDF 처리 및 벡터 DB 생성
 @st.cache_resource
@@ -25,32 +25,33 @@ def process_pdf(file_path):
     
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
-    # 퀴즈 생성을 위해 검색기(retriever)와 원본(docs) 둘 다 반환
     return vectorstore.as_retriever(), docs
 
-# 3. 요약 및 퀴즈 생성
-def generate_summary_and_quiz(docs):
+# 3. 요약 및 퀴즈 생성 (범용 버전)
+def generate_summary_and_quiz(docs, topic, level):
     llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
     
-    # 앞부분 3페이지만 읽기
     max_pages = 3
     context_text = "\n\n".join([doc.page_content for doc in docs[:max_pages]])
 
+    # 프롬프트에 '주제(topic)'와 '대상(level)'을 동적으로 넣습니다.
     prompt = f"""
-    너는 초등학생들의 눈높이에 맞춘 친절한 선생님 '코디'야. 
+    너는 지금부터 유능한 '{topic}' 선생님이야.
+    내 학생의 수준은 '{level}'이야. 이 수준에 딱 맞춰서 설명해야 해.
+    
     아래 [교재 내용]을 보고 수업을 준비해줘.
     
     [교재 내용]:
     {context_text}
     
     [요청 사항]:
-    1. **오늘의 학습 목표**: 핵심 주제 3가지를 뽑아서 요약해줘.
-    2. **재미있는 퀴즈**: 아이들이 흥미를 가질만한 내용으로 3지 선다형 퀴즈를 1개만 만들어줘.
+    1. **오늘의 핵심 요약**: 이 교재의 핵심 내용을 3가지로 요약해줘.
+    2. **맞춤형 퀴즈**: '{level}' 수준에 맞는 3지 선다형 퀴즈를 1개 만들어줘.
     
     출력 형식:
     ---
-    ### 📝 오늘의 학습 목표
-    (요약)
+    ### 📝 {topic} 핵심 요약 ({level}용)
+    (요약 내용)
     
     ### 🧩 팝 퀴즈!
     (문제)
@@ -64,8 +65,15 @@ def generate_summary_and_quiz(docs):
 
 # --- UI 구성 ---
 with st.sidebar:
+    st.header("학습 설정 ⚙️")
+    
+    # [New] 과목명과 난이도를 사용자가 직접 고르게 합니다.
+    topic = st.text_input("공부할 주제를 입력하세요", value="일반 상식")
+    level = st.selectbox("학습 난이도(대상)", ["초등학생", "중고등학생", "대학생/전문가", "일반인"])
+    
+    st.divider()
     st.header("교재 업로드 📤")
-    uploaded_file = st.file_uploader("PDF 파일을 올려주세요", type=["pdf"])
+    uploaded_file = st.file_uploader("PDF 교재를 올려주세요", type=["pdf"])
 
 if uploaded_file is not None:
     temp_pdf_path = "temp_lesson.pdf"
@@ -73,26 +81,29 @@ if uploaded_file is not None:
         f.write(uploaded_file.getbuffer())
     
     try:
-        if "retriever" not in st.session_state:
-            with st.spinner("코디가 교재를 읽고 수업 준비 중... 📚"):
+        # 파일이 바뀌거나 설정이 바뀌면 리셋하기 위해 session_state 체크 로직을 단순화했습니다.
+        if "retriever" not in st.session_state or st.sidebar.button("설정 적용 및 다시 학습"):
+            with st.spinner(f"AI가 '{topic}' 과목을 '{level}' 수준으로 공부하는 중... 📚"):
                 retriever, docs = process_pdf(temp_pdf_path)
                 st.session_state["retriever"] = retriever
                 
-                summary = generate_summary_and_quiz(docs)
+                # 요약본 생성 시 설정값 전달
+                summary = generate_summary_and_quiz(docs, topic, level)
                 
                 st.session_state["messages"] = [
-                    AIMessage(content=f"자, 수업 시작해볼까요? 😎\n\n{summary}")
+                    AIMessage(content=f"안녕하세요! 저는 오늘 여러분의 **{topic}** 선생님입니다.\n**{level}** 눈높이에 맞춰 수업할게요! 😎\n\n{summary}")
                 ]
-        st.success("수업 준비 완료!")
+        st.success("준비 완료!")
         
     except Exception as e:
         st.error(f"오류 발생: {e}")
         st.stop()
 else:
-    if "retriever" in st.session_state:
-        del st.session_state["retriever"]
-        st.session_state["messages"] = []
-    st.info("👈 왼쪽에서 PDF 교재를 먼저 업로드해주세요.")
+    # 파일 없으면 초기화
+    for key in ["retriever", "messages"]:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.info("👈 왼쪽에서 주제를 적고 PDF를 업로드해주세요.")
     st.stop()
 
 # 채팅 기록 표시
@@ -102,39 +113,36 @@ for msg in st.session_state["messages"]:
     elif isinstance(msg, AIMessage):
         st.chat_message("assistant").write(msg.content)
 
-# ★ 여기가 핵심: 사용자 입력 처리 및 스트리밍
-if user_input := st.chat_input("질문해 보세요!"):
-    # 1. 사용자 메시지 화면 표시
+# 사용자 입력 처리
+if user_input := st.chat_input("궁금한 점을 물어보세요!"):
     st.chat_message("user").write(user_input)
     st.session_state["messages"].append(HumanMessage(content=user_input))
 
-    # 2. AI 답변 생성
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
         full_response = ""
         
-        # (1) 검색 단계
-        with st.spinner("교과서 뒤적이는 중... 📖"):
+        with st.spinner("교재 내용 찾아보는 중..."):
             retriever = st.session_state["retriever"]
             retrieved_docs = retriever.invoke(user_input)
             context = "\n\n".join([doc.page_content for doc in retrieved_docs])
         
-        # (2) [New] 대화 기록 가져오기 (최근 3개만 가져와서 기억력 주입)
-        # 너무 많이 가져오면 토큰 비용이 드니, 최근 대화(퀴즈 낸 거)만 가져옵니다.
+        # 대화 기록 (기억력)
         chat_history = []
         for msg in st.session_state["messages"][-3:]: 
             role = "AI 선생님" if isinstance(msg, AIMessage) else "학생"
             chat_history.append(f"{role}: {msg.content}")
         history_text = "\n".join(chat_history)
 
-        # (3) 프롬프트 구성 (대화 기록 포함)
+        # [New] 프롬프트에도 topic과 level을 주입하여 페르소나 유지
         prompt_template = ChatPromptTemplate.from_template(f"""
-        너는 친절한 선생님 '코디'야. 
+        너는 유능하고 친절한 '{topic}' 선생님이야.
+        학습자는 '{level}' 수준이야. 어려운 말 쓰지 말고 눈높이에 맞춰서 설명해.
         
         [지시 사항]:
-        1. 아래 [대화 기록]을 보고 흐름을 파악해. (네가 방금 퀴즈를 냈다면 정답을 확인해줘!)
-        2. [참고 자료]에 없는 내용은 솔직히 모른다고 해.
-        3. 학생의 질문이나 대답에 친절하게 반응해줘.
+        1. [대화 기록]을 참고해서 문맥을 이어가.
+        2. 반드시 [참고 자료]에 기반해서 대답해. 모르면 모른다고 해.
+        3. 설명은 명확하고 친절하게.
 
         [대화 기록]:
         {{history}}
@@ -142,28 +150,24 @@ if user_input := st.chat_input("질문해 보세요!"):
         [참고 자료]:
         {{context}}
         
-        학생 질문: {{input}}
+        질문: {{input}}
         """)
         
-        # (4) LLM 호출
         llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
         chain = prompt_template | llm
         
-        # history와 context, input을 모두 넣어줍니다.
         chunks = chain.stream({
             "history": history_text, 
             "context": context, 
             "input": user_input
         })
         
-        # (5) 스트리밍 출력
         for chunk in chunks:
             if chunk.content:
                 full_response += chunk.content
                 message_placeholder.markdown(full_response + "▌")
-                time.sleep(0.03) # 타자 속도
+                time.sleep(0.03)
         
         message_placeholder.markdown(full_response)
     
-    # 3. 세션에 저장
     st.session_state["messages"].append(AIMessage(content=full_response))
