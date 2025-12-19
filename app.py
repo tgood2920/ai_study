@@ -34,14 +34,19 @@ def process_pdf(file_path):
     vectorstore = FAISS.from_documents(splits, GoogleGenerativeAIEmbeddings(model="models/embedding-001"))
     return vectorstore.as_retriever(), docs
 
-# 데이터 추출 함수
+# app.py 내 get_integrated_data 함수 수정
 def get_integrated_data(docs):
     llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
-    context = "\n\n".join([doc.page_content for doc in docs[:15]]) + \
-              "\n\n" + "\n\n".join([doc.page_content for doc in docs[-15:]])
+    
+    # 분석 범위: 앞부분(개요) 10페이지 + 뒷부분(제출안내) 20페이지 조합
+    # 제출 서류는 보통 문서 끝부분에 나오므로 범위를 뒤쪽으로 넓혔습니다.
+    context = "\n\n".join([doc.page_content for doc in docs[:10]]) + \
+              "\n\n" + "\n\n".join([doc.page_content for doc in docs[-20:]])
     
     prompt = f"""
-    RFP를 분석해 JSON으로 응답해. 모든 내용은 최대한 짧게 축약해.
+    RFP를 분석해서 입찰 및 제안서 제출 정보를 JSON으로 응답해. 
+    내용은 핵심만 아주 짧게 축약해. 데이터가 없으면 빈 문자열("")을 넣어.
+
     구조: {{
         "basic_info": {{
             "basic": {{ "공식사업명":"", "공고번호":"", "수요기관":"", "사업예산":"", "사업기간":"", "입찰방식":"" }},
@@ -49,7 +54,14 @@ def get_integrated_data(docs):
             "issues": [ {{ "구분":"", "주요사항":"", "비고":"" }} ],
             "status": [ {{ "일자":"", "주요사항":"", "비고":"" }} ]
         }},
-        "prep_docs": [ {{ "순번":1, "서류명":"", "규격/수량":"", "제출방법":"", "비고":"" }} ]
+        "prep_docs": {{
+            "project_name": "사업명",
+            "sub_method": "제안서 제출 방식 (예: 온라인 제출)",
+            "sub_copies": "제출 부수 (예: 정량1식, 정성1식)",
+            "doc_list": [
+                {{ "구분": "서류 분류(예: 입찰참가서류)", "제출서류": "서류 명칭", "확인사항": "비고/참고" }}
+            ]
+        }}
     }}
     내용: {context}
     """
@@ -78,7 +90,7 @@ if uploaded_file:
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
                     wb = writer.book
-                    t_fmt = wb.add_format({'bold': True, 'font_size': 12})
+                    t_fmt = wb.add_format({'bold': True, 'font_size': 12, 'bottom' : 2 })
                     h_fmt = wb.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1})
                     c_fmt = wb.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
                     

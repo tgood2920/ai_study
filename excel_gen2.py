@@ -4,46 +4,31 @@ def write_sheet2(workbook, data, title_fmt, head_fmt, cell_fmt):
     ws = workbook.add_worksheet('2. 제안준비서류')
     curr_row = 1
     
-    # [에러 방지] p_data가 리스트로 들어올 경우를 대비한 처리
     p_data_raw = data.get('prep_docs', {})
     if isinstance(p_data_raw, list):
         p_data = p_data_raw[0] if p_data_raw else {}
     else:
         p_data = p_data_raw
 
-    # --- 스타일 정의 (이미지 배색 반영) ---
-    # 파란색 테두리 및 텍스트용
     title_line_fmt = workbook.add_format({'bold': True, 'font_size': 16, 'font_color': '#002060', 'bottom': 2})
-    # 항목 레이블 (연한 회색 배경)
     label_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#E7E6E6', 'border': 1, 'valign': 'vcenter'})
-    # 좌측 분류 레이블 (연한 파란색 배경)
     cat_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#D9E1F2', 'border': 1, 'valign': 'vcenter'})
 
     # 1. 타이틀: 입찰 서류 및 제안 제출 (B2~I2)
-    ws.merge_range(curr_row, 1, curr_row, 8, "입찰 서류 및 제안 제출", title_line_fmt)
+    ws.merge_range(curr_row, 1, curr_row, 3, "입찰 서류 및 제안 제출", title_line_fmt)
     curr_row += 1
 
-    # 2. 사업명 섹션 (B3: 구분, C3~I3: 데이터)
     ws.write(curr_row, 1, "사업명", label_fmt)
-    ws.merge_range(curr_row, 2, curr_row, 8, str(p_data.get("project_name", "")), cell_fmt)
+    ws.merge_range(curr_row, 2, curr_row, 3, str(p_data.get("project_name", "")), cell_fmt)
     curr_row += 2 # 이미지처럼 한 칸 띄움
 
-    # 3. 제안서 제출 정보 섹션 (B5~B7 병합)
-    # 제안서 레이블 (3행 병합)
-    ws.merge_range(curr_row, 1, curr_row + 2, 1, "제안서", cat_fmt)
-    
-    # 제안서 제출 방식 (C5 레이블, D5~G5 데이터, H5~I5 빈칸)
-    ws.write(curr_row, 2, "제안서 제출 방식", label_fmt)
-    ws.merge_range(curr_row, 3, curr_row, 6, str(p_data.get("sub_method", "")), cell_fmt)
-    ws.merge_range(curr_row, 7, curr_row, 8, "", cell_fmt)
+    ws.write(curr_row, 1, "제안서", label_fmt)
+    ws.merge_range(curr_row, 1, "제안서", cat_fmt)
+    ws.write(curr_row, 1, "제안서 제출 방식", label_fmt)
+    ws.merge_range(curr_row, 2, curr_row, 3, str(p_data.get("sub_method", "")), cell_fmt)
+    ws.write(curr_row, 1, "제출 부수", label_fmt)
+    ws.merge_range(curr_row, 2, curr_row, 3, str(p_data.get("sub_copies", "")), cell_fmt)
     curr_row += 1
-
-    # 제출 부수 (C6 레이블, D6~G6 데이터, H6~I6 빈칸)
-    ws.write(curr_row, 2, "제출 부수", label_fmt)
-    ws.merge_range(curr_row, 3, curr_row, 6, str(p_data.get("sub_copies", "")), cell_fmt)
-    ws.merge_range(curr_row, 7, curr_row, 8, "", cell_fmt)
-    curr_row += 1
-    
     # 하단 빈 줄 (이미지 양식 유지용)
     ws.merge_range(curr_row, 2, curr_row, 8, "", cell_fmt)
     curr_row += 3
@@ -59,8 +44,8 @@ def write_sheet2(workbook, data, title_fmt, head_fmt, cell_fmt):
     })
     
     ws.write(curr_row, 1, "구분", tbl_head_fmt)
-    ws.merge_range(curr_row, 2, curr_row, 6, "제출서류", tbl_head_fmt)
-    ws.merge_range(curr_row, 7, curr_row, 8, "확인사항", tbl_head_fmt)
+    ws.write(curr_row, 1, "제출서류", tbl_head_fmt)
+    ws.write(curr_row, 1, "확인사항", tbl_head_fmt)
     curr_row += 1
 
     # 테이블 데이터 (리스트 처리)
@@ -68,18 +53,17 @@ def write_sheet2(workbook, data, title_fmt, head_fmt, cell_fmt):
     if doc_list:
         for doc in doc_list:
             ws.write(curr_row, 1, doc.get("구분", ""), cell_fmt)
-            ws.merge_range(curr_row, 2, curr_row, 6, doc.get("제출서류", ""), cell_fmt)
-            ws.merge_range(curr_row, 7, curr_row, 8, doc.get("확인사항", ""), cell_fmt)
+            ws.write(curr_row, 2 doc.get("제출서류", ""), cell_fmt)
+            ws.write(curr_row, 3, doc.get("확인사항", ""), cell_fmt)
             curr_row += 1
     else:
         # 데이터 없을 시 빈 행 하나 생성
         ws.write(curr_row, 1, "", cell_fmt)
-        ws.merge_range(curr_row, 2, curr_row, 6, "", cell_fmt)
-        ws.merge_range(curr_row, 7, curr_row, 8, "", cell_fmt)
+        ws.write(curr_row, 2, "", cell_fmt)
+        ws.write(curr_row, 3, "", cell_fmt)
 
-    # 열 너비 세밀 조정 (이미지 비율 참고)
-    ws.set_column(0, 0, 2)    # A열 (여백)
-    ws.set_column(1, 1, 15)   # B열 (구분/사업명)
-    ws.set_column(2, 2, 20)   # C열 (제출방식/부수)
-    ws.set_column(3, 6, 12)   # D~G열 (데이터)
-    ws.set_column(7, 8, 20)   # H~I열 (확인사항)
+    ws.set_column(0, 0, 2)
+    ws.set_column(1, 1, 15)
+    ws.set_column(2, 2, 74)
+    ws.set_column(3, 3, 35)
+    
