@@ -7,11 +7,11 @@ def write_sheet1(workbook, data, title_fmt, head_fmt, cell_fmt):
     ws.merge_range(curr_row, 0, curr_row, 3, " # 사업기본정보", title_fmt)
     curr_row += 1
     items = list(b_data.get('basic', {}).items())
-    if "공식사업명" in basic_data:
-            worksheet.write(curr_row, 0, "공식사업명", head_fmt)
-            worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["공식사업명"]), cell_fmt)
-            curr_row += 1
-            basic_data.pop("공식사업명")
+    if "공식사업명" in b_data:
+        worksheet.write(curr_row, 0, "공식사업명", head_fmt)
+        worksheet.merge_range(curr_row, 1, curr_row, 3, str(b_data["공식사업명"]), cell_fmt)
+        curr_row += 1
+        b_data.pop("공식사업명")
     for i in range(0, len(items), 2):
         ws.write(curr_row, 0, items[i][0], head_fmt)
         ws.write(curr_row, 1, str(items[i][1]) if items[i][1] else "", cell_fmt)
