@@ -59,7 +59,7 @@ def get_integrated_data(docs):
 
 # --- UI 섹션 ---
 with st.sidebar:
-    project_alias = st.text_input("프로젝트명", "입찰_사업")
+    project_alias = st.text_input("프로젝트명", "사업명을 입력하세요.")
     uploaded_file = st.file_uploader("RFP PDF 업로드", type=["pdf"])
 
 if uploaded_file:
@@ -72,7 +72,7 @@ if uploaded_file:
             st.session_state.update({"retriever": retriever, "docs": docs, "analysis_done": True})
 
     if st.session_state["analysis_done"]:
-        if st.button("📊 통합 엑셀 생성 (1, 2번 시트)"):
+        if st.button("📊 스토리보드 생성"):
             with st.spinner("데이터 추출 및 시트 구성 중..."):
                 data = get_integrated_data(st.session_state["docs"])
                 output = io.BytesIO()
@@ -85,4 +85,4 @@ if uploaded_file:
                     write_sheet1(wb, data, t_fmt, h_fmt, c_fmt)
                     write_sheet2(wb, data, t_fmt, h_fmt, c_fmt)
                 
-                st.download_button("📥 다운로드", output.getvalue(), f"{project_alias}_제안요약.xlsx")
+                st.download_button("📥 스토리보드 다운로드", output.getvalue(), f"{project_alias}_제안요약.xlsx")
