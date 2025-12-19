@@ -53,29 +53,36 @@ def create_basic_info_excel(data, project_alias):
         worksheet = workbook.add_worksheet('1. 사업기본정보')
         
         # --- 서식 정의 ---
-        title_fmt = workbook.add_format({'bold': True}) # 섹션 제목
-        head_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1, 'border-top': 2}) # 표 헤더
+        title_fmt = workbook.add_format({'bold': True, 'font_size': 12})
+        # border-top 대신 top: 2 사용
+        head_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1, 'top': 2}) 
         cell_fmt = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
         
         curr_row = 0
 
         # 1. 사업기본정보 섹션
-        worksheet.write(curr_row, 0, " # 사업기본정보", title_fmt)
         worksheet.merge_range(curr_row, 0, curr_row, 3, " # 사업기본정보", title_fmt)
         curr_row += 1
-        # for k, v in data.get('basic', {}).items():
-        #    worksheet.write(curr_row, 0, k, head_fmt)
-        #    worksheet.write(curr_row, 1, str(v), cell_fmt)
-        #    curr_row += 1
-        basic_items = list(data.get('basic', {}).items())
-        for i in range(0, len(basic_items), 2):
-            # 첫 번째 항목
-            worksheet.write(curr_row, 0, basic_items[i][0], head_fmt)
-            worksheet.write(curr_row, 1, str(basic_items[i][1]), cell_fmt)
-            # 두 번째 항목이 있다면
-            if i + 1 < len(basic_items):
-                worksheet.write(curr_row, 2, basic_items[i + 1][0], head_fmt)
-                worksheet.write(curr_row, 3, str(basic_items[i + 1][1]), cell_fmt)
+        
+        # 딕셔너리 데이터를 리스트로 변환
+        basic_data = data.get('basic', {})
+        items = list(basic_data.items())
+
+        for i in range(0, len(items), 2):
+            # 첫 번째 쌍 (A, B열)
+            worksheet.write(curr_row, 0, items[i][0], head_fmt)
+            val1 = items[i][1] if items[i][1] else ""
+            worksheet.write(curr_row, 1, str(val1), cell_fmt)
+            
+            # 두 번째 쌍 (C, D열)
+            if i + 1 < len(items):
+                worksheet.write(curr_row, 2, items[i+1][0], head_fmt)
+                val2 = items[i+1][1] if items[i+1][1] else ""
+                worksheet.write(curr_row, 3, str(val2), cell_fmt)
+            else:
+                # 데이터가 홀수개일 경우 빈 칸 처리 (테두리 유지)
+                worksheet.write(curr_row, 2, "", head_fmt)
+                worksheet.write(curr_row, 3, "", cell_fmt)
             curr_row += 1
 
         curr_row += 1 # 빈 행
