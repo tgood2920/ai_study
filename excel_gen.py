@@ -67,6 +67,7 @@ def create_basic_info_excel(data, project_alias):
         #    worksheet.write(curr_row, 0, k, head_fmt)
         #    worksheet.write(curr_row, 1, str(v), cell_fmt)
         #    curr_row += 1
+        basic_items = list(data.get('basic', {}).items())
         for i in range(0, len(basic_items), 2):
             # 첫 번째 항목
             worksheet.write(curr_row, 0, basic_items[i][0], head_fmt)
