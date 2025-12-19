@@ -5,20 +5,33 @@ import re
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 def get_basic_info_json(docs):
-    """PDF에서 1번 시트용 데이터를 JSON으로 추출"""
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
+    """RFP에서 섹션별 데이터를 통합 추출"""
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.1)
     context = "\n\n".join([doc.page_content for doc in docs[:15]])
     
     prompt = f"""
-    너는 제안서 작성 전문가야. 아래 내용을 분석해 JSON으로만 응답해.
+    너는 제안서 작성 전문가야. 아래 [내용]을 분석해 반드시 JSON으로만 응답해.
     
     [규칙]:
     1. '중소기업기술정보진흥원' 명칭은 절대 줄이지 마라.
     2. 모든 내용은 최대한 요약해서 축약형으로 작성하라.
-    3. 데이터가 없으면 빈 문자열("")로 표시하라.
-    
-    [항목]:
-    공식사업명, 공고번호, 수요기관, 사업예산(VAT포함), 사업기간, 입찰방식, 낙찰자결정방법, 입찰참가자격, 담당자정보
+    3. 해당 데이터를 찾을 수 없다면 빈 문자열("")로 표시하라.
+
+    [JSON 구조]:
+    {{
+        "basic": {{
+            "공식사업명": "", "수요기관": "", "사업기간": "", "사업비용": "", "공고일": "", "입찰방식": ""
+        }},
+        "managers": [
+            {{"소속": "", "성명": "", "연락처": "", "이메일": ""}}
+        ],
+        "issues": [
+            {{"구분": "", "주요사항": "", "비고": ""}}
+        ],
+        "status": [
+            {{"일자": "", "주요사항": "", "비고": ""}}
+        ]
+    }}
 
     [내용]:
     {context}
@@ -30,40 +43,78 @@ def get_basic_info_json(docs):
     except:
         return None
 
-def create_basic_info_excel(data_dict, project_alias):
-    """추출된 데이터를 바탕으로 이미지 양식과 유사한 엑셀 생성"""
-    if not data_dict:
+def create_basic_info_excel(data, project_alias):
+    """사용자가 제시한 append 방식의 섹션별 레이아웃 생성"""
+    if not data:
         return None
         
-    df = pd.DataFrame(list(data_dict.items()), columns=['구분', '내용'])
     output = io.BytesIO()
-    
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='1. 사업기본정보')
-        
         workbook = writer.book
-        worksheet = writer.sheets['1. 사업기본정보']
+        worksheet = workbook.add_worksheet('1. 사업기본정보')
         
         # --- 서식 정의 ---
-        header_fmt = workbook.add_format({
-            'bold': True, 'align': 'center', 'valign': 'vcenter',
-            'bg_color': '#D7E4BC', 'border': 1, 'font_size': 11
-        })
-        cell_fmt = workbook.add_format({
-            'valign': 'vcenter', 'border': 1, 'text_wrap': True, 'font_size': 10
-        })
+        title_fmt = workbook.add_format({'bold': True, 'bg_color': '#D9D9D9', 'border': 1}) # 섹션 제목
+        head_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1}) # 표 헤더
+        cell_fmt = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
         
-        # --- 표 꾸미기 ---
-        worksheet.set_column(0, 0, 25) # 구분 열 너비
-        worksheet.set_column(1, 1, 80) # 내용 열 너비
-        
-        # 헤더 쓰기
-        for col_num, value in enumerate(df.columns.values):
-            worksheet.write(0, col_num, value, header_fmt)
-            
-        # 데이터 쓰기 (None 방지 및 문자열 변환)
-        for row_num, (k, v) in enumerate(data_dict.items()):
-            worksheet.write(row_num + 1, 0, str(k), cell_fmt)
-            worksheet.write(row_num + 1, 1, str(v) if v else "", cell_fmt)
-            
+        curr_row = 0
+
+        # 1. 사업기본정보 섹션
+        worksheet.write(curr_row, 0, " # 사업기본정보", title_fmt)
+        worksheet.merge_range(curr_row, 0, curr_row, 1, " # 사업기본정보", title_fmt)
+        curr_row += 1
+        for k, v in data.get('basic', {}).items():
+            worksheet.write(curr_row, 0, k, head_fmt)
+            worksheet.write(curr_row, 1, str(v), cell_fmt)
+            curr_row += 1
+        curr_row += 1 # 빈 행
+
+        # 2. 사업담당자 섹션
+        worksheet.merge_range(curr_row, 0, curr_row, 3, " # 사업담당자", title_fmt)
+        curr_row += 1
+        headers = ["소속", "성명", "연락처", "이메일"]
+        for col, h in enumerate(headers):
+            worksheet.write(curr_row, col, h, head_fmt)
+        curr_row += 1
+        for m in data.get('managers', []):
+            worksheet.write(curr_row, 0, m.get("소속", ""), cell_fmt)
+            worksheet.write(curr_row, 1, m.get("성명", ""), cell_fmt)
+            worksheet.write(curr_row, 2, m.get("연락처", ""), cell_fmt)
+            worksheet.write(curr_row, 3, m.get("이메일", ""), cell_fmt)
+            curr_row += 1
+        curr_row += 1
+
+        # 3. 주요 이슈 섹션
+        worksheet.merge_range(curr_row, 0, curr_row, 2, " # 주요 이슈(특이사항)", title_fmt)
+        curr_row += 1
+        headers = ["구분", "주요사항", "비고"]
+        for col, h in enumerate(headers):
+            worksheet.write(curr_row, col, h, head_fmt)
+        curr_row += 1
+        for i in data.get('issues', []):
+            worksheet.write(curr_row, 0, i.get("구분", ""), cell_fmt)
+            worksheet.write(curr_row, 1, i.get("주요사항", ""), cell_fmt)
+            worksheet.write(curr_row, 2, i.get("비고", ""), cell_fmt)
+            curr_row += 1
+        curr_row += 1
+
+        # 4. 사업진행현황 섹션
+        worksheet.merge_range(curr_row, 0, curr_row, 2, " # 사업진행현황", title_fmt)
+        curr_row += 1
+        headers = ["일자", "주요사항", "비고"]
+        for col, h in enumerate(headers):
+            worksheet.write(curr_row, col, h, head_fmt)
+        curr_row += 1
+        for s in data.get('status', []):
+            worksheet.write(curr_row, 0, s.get("일자", ""), cell_fmt)
+            worksheet.write(curr_row, 1, s.get("주요사항", ""), cell_fmt)
+            worksheet.write(curr_row, 2, s.get("비고", ""), cell_fmt)
+            curr_row += 1
+
+        # 열 너비 조정
+        worksheet.set_column(0, 0, 20)
+        worksheet.set_column(1, 1, 40)
+        worksheet.set_column(2, 3, 25)
+
     return output.getvalue()
