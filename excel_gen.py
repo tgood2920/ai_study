@@ -59,32 +59,37 @@ def create_basic_info_excel(data, project_alias):
         
         curr_row = 0
 
-        # 1. 사업기본정보 섹션
+        # 1. 사업기본정보 섹션 시작
         worksheet.merge_range(curr_row, 0, curr_row, 3, " # 사업기본정보", title_fmt)
         curr_row += 1
         
-        # 딕셔너리 데이터를 리스트로 변환
         basic_data = data.get('basic', {})
-        items = list(basic_data.items())
+        
+        # 예: '공식사업명'은 너무 기니까 0~3열을 모두 병합해서 한 줄로 표시
+        if "공식사업명" in basic_data:
+            worksheet.write(curr_row, 0, "공식사업명", head_fmt)
+            # 1열부터 3열까지 병합하여 내용을 채움
+            worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["공식사업명"]), cell_fmt)
+            curr_row += 1
+            # 처리한 항목은 리스트에서 제외하기 위해 pop 사용 가능
+            basic_data.pop("공식사업명")
 
+        # 나머지 항목들은 기존처럼 2열씩 배치
+        items = list(basic_data.items())
         for i in range(0, len(items), 2):
             # 첫 번째 쌍 (A, B열)
-            worksheet.write(curr_row, 0, curr_row, 3, items[i][0], head_fmt)
-            val1 = items[i][1] if items[i][1] else ""
-            worksheet.write(curr_row, 1, str(val1), cell_fmt)
+            worksheet.write(curr_row, 0, items[i][0], head_fmt)
+            worksheet.write(curr_row, 1, str(items[i][1]) if items[i][1] else "", cell_fmt)
             
             # 두 번째 쌍 (C, D열)
             if i + 1 < len(items):
                 worksheet.write(curr_row, 2, items[i+1][0], head_fmt)
-                val2 = items[i+1][1] if items[i+1][1] else ""
-                worksheet.write(curr_row, 3, str(val2), cell_fmt)
+                worksheet.write(curr_row, 3, str(items[i+1][1]) if items[i+1][1] else "", cell_fmt)
             else:
-                # 데이터가 홀수개일 경우 빈 칸 처리 (테두리 유지)
+                # 홀수개일 때 나머지 칸도 병합하거나 빈칸 처리
                 worksheet.write(curr_row, 2, "", head_fmt)
                 worksheet.write(curr_row, 3, "", cell_fmt)
             curr_row += 1
-
-        curr_row += 1 # 빈 행
 
 
 
