@@ -119,9 +119,9 @@ def create_basic_info_excel(data, project_alias):
             worksheet.write(curr_row, 0, i.get("구분", ""), cell_fmt)
             
             if "주요사항" in basic_data:
-            worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["주요사항"]), cell_fmt)
-            worksheet.write(curr_row, 1, i.get("주요사항", ""), cell_fmt)
-            basic_data.pop("주요사항")
+                worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["주요사항"]), cell_fmt)
+                worksheet.write(curr_row, 1, i.get("주요사항", ""), cell_fmt)
+                basic_data.pop("주요사항")
 
             worksheet.write(curr_row, 3, i.get("비고", ""), cell_fmt)
             curr_row += 1
@@ -138,9 +138,9 @@ def create_basic_info_excel(data, project_alias):
             worksheet.write(curr_row, 0, s.get("일자", ""), cell_fmt)
             
             if "주요사항" in basic_data:
-            worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["주요사항"]), cell_fmt)
-            worksheet.write(curr_row, 1, s.get("주요사항", ""), cell_fmt)
-            basic_data.pop("주요사항")
+                worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["주요사항"]), cell_fmt)
+                worksheet.write(curr_row, 1, s.get("주요사항", ""), cell_fmt)
+                basic_data.pop("주요사항")
 
             worksheet.write(curr_row, 3, s.get("비고", ""), cell_fmt)
             curr_row += 1
