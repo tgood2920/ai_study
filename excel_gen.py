@@ -53,9 +53,8 @@ def create_basic_info_excel(data, project_alias):
         worksheet = workbook.add_worksheet('1. 사업기본정보')
         
         # --- 서식 정의 ---
-        title_fmt = workbook.add_format({'bold': True, 'font_size': 12})
-        # border-top 대신 top: 2 사용
-        head_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1, 'top': 2}) 
+        title_fmt = workbook.add_format({'bold': True, 'font_size': 12, 'bottom' : 2})
+        head_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1}) 
         cell_fmt = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
         
         curr_row = 0
@@ -70,7 +69,7 @@ def create_basic_info_excel(data, project_alias):
 
         for i in range(0, len(items), 2):
             # 첫 번째 쌍 (A, B열)
-            worksheet.write(curr_row, 0, items[i][0], head_fmt)
+            worksheet.write(curr_row, 0, curr_row, 3, items[i][0], head_fmt)
             val1 = items[i][1] if items[i][1] else ""
             worksheet.write(curr_row, 1, str(val1), cell_fmt)
             
