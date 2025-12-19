@@ -24,14 +24,16 @@ def write_sheet2(workbook, data, title_fmt, head_fmt, cell_fmt):
 
     ws.write(curr_row, 1, "제안서", label_fmt)
     ws.merge_range(curr_row, 1, "제안서", cat_fmt)
+    curr_row += 1
     ws.write(curr_row, 1, "제안서 제출 방식", label_fmt)
     ws.merge_range(curr_row, 2, curr_row, 3, str(p_data.get("sub_method", "")), cell_fmt)
+    curr_row += 1
     ws.write(curr_row, 1, "제출 부수", label_fmt)
     ws.merge_range(curr_row, 2, curr_row, 3, str(p_data.get("sub_copies", "")), cell_fmt)
     curr_row += 1
     # 하단 빈 줄 (이미지 양식 유지용)
-    ws.merge_range(curr_row, 2, curr_row, 8, "", cell_fmt)
-    curr_row += 3
+    ws.merge_range(curr_row, 2, curr_row, 3, "", cell_fmt)
+    curr_row += 2
 
     # --- 2섹션: 제출 서류 테이블 시작 ---
     ws.write(curr_row, 1, "제출 서류", workbook.add_format({'bold': True, 'font_size': 11}))
@@ -44,8 +46,8 @@ def write_sheet2(workbook, data, title_fmt, head_fmt, cell_fmt):
     })
     
     ws.write(curr_row, 1, "구분", tbl_head_fmt)
-    ws.write(curr_row, 1, "제출서류", tbl_head_fmt)
-    ws.write(curr_row, 1, "확인사항", tbl_head_fmt)
+    ws.write(curr_row, 2, "제출서류", tbl_head_fmt)
+    ws.write(curr_row, 3, "확인사항", tbl_head_fmt)
     curr_row += 1
 
     # 테이블 데이터 (리스트 처리)
