@@ -1,80 +1,50 @@
 import streamlit as st
-import os
-from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain_core.messages import HumanMessage, AIMessage
+import pandas as pd
+import io
+import json
+import re
+from excel_gen1 import write_sheet1
+from excel_gen2 import write_sheet2
+# (상단 import 및 PDF 처리 함수는 이전과 동일하게 유지)
 
-# 외부 모듈 로드
-from excel_gen import get_basic_info_json, create_basic_info_excel
+def get_integrated_data(docs):
+    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
+    context = "\n\n".join([doc.page_content for doc in docs[:15]]) + \
+              "\n\n" + "\n\n".join([doc.page_content for doc in docs[-10:]])
+    
+    prompt = f"""
+    RFP를 분석해 JSON으로 응답해. 모든 내용은 최대한 짧게 축약해.
+    
+    구조: {{
+        "basic_info": {{
+            "basic": {{ "공식사업명":"", "공고번호":"", "수요기관":"", "사업예산":"", "사업기간":"", "입찰방식":"" }},
+            "managers": [ {{ "소속":"", "성명":"", "연락처":"", "이메일":"" }} ],
+            "issues": [ {{ "구분":"", "주요사항":"", "비고":"" }} ],
+            "status": [ {{ "일자":"", "주요사항":"", "비고":"" }} ]
+        }},
+        "prep_docs": [ {{ "순번":1, "서류명":"", "규격/수량":"", "제출방법":"", "비고":"" }} ]
+    }}
+    내용: {context}
+    """
+    res = llm.invoke(prompt).content
+    match = re.search(r'\{.*\}', res, re.DOTALL)
+    return json.loads(match.group(0)) if match else None
 
-load_dotenv()
-st.set_page_config(page_title="RFP 분석 시스템", page_icon="📑", layout="wide")
-
-# 세션 초기화
-for key in ["messages", "retriever", "docs", "analysis_done"]:
-    if key not in st.session_state:
-        st.session_state[key] = [] if key == "messages" else None if key != "analysis_done" else False
-
-st.title("📑 RFP 분석 엔진")
-
-@st.cache_resource
-def load_and_analyze_pdf(file_path):
-    loader = PyPDFLoader(file_path)
-    docs = loader.load()
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-    splits = text_splitter.split_documents(docs)
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-    vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
-    return vectorstore.as_retriever(), docs
-
-# --- 사이드바 및 업로드 ---
-with st.sidebar:
-    st.header("📂 분석 도구")
-    project_alias = st.text_input("프로젝트 명칭", "입찰_사업")
-    uploaded_file = st.file_uploader("RFP PDF 업로드", type=["pdf"])
-    if st.button("🗑️ 초기화"):
-        st.session_state.clear()
-        st.rerun()
-
-if uploaded_file:
-    temp_path = f"temp_{uploaded_file.name}"
-    with open(temp_path, "wb") as f: f.write(uploaded_file.getbuffer())
-
-    if st.session_state["retriever"] is None:
-        with st.spinner("📄 PDF를 정밀 분석 중입니다..."):
-            retriever, docs = load_and_analyze_pdf(temp_path)
-            st.session_state.update({"retriever": retriever, "docs": docs, "analysis_done": True})
-            st.session_state["messages"].append(AIMessage(content="PDF 분석이 완료되었습니다."))
-
-    # 채팅 UI
-    for msg in st.session_state["messages"]:
-        st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
-
-    # 엑셀 생성 로직 (분리된 모듈 호출)
-    if st.session_state["analysis_done"]:
-        st.divider()
-        if st.button("📊 1. 사업기본정보 엑셀 생성"):
-            with st.spinner("스토리보드 양식에 맞춰 구성 중..."):
-                data_dict = get_basic_info_json(st.session_state["docs"])
-                excel_file = create_basic_info_excel(data_dict, project_alias)
+# --- UI 메인 로직 ---
+if st.session_state["analysis_done"]:
+    if st.button("📊 통합 엑셀 생성 (1, 2번 시트)"):
+        with st.spinner("이미지 양식에 맞춰 시트 구성 중..."):
+            data = get_integrated_data(st.session_state["docs"])
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                wb = writer.book
+                # 공통 서식 (개발자님이 설정한 스타일)
+                t_fmt = wb.add_format({'bold': True, 'font_size': 12})
+                h_fmt = wb.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1})
+                c_fmt = wb.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
                 
-                if excel_file:
-                    st.success("1번 시트 생성이 완료되었습니다.")
-                    st.download_button("📥 엑셀 다운로드", excel_file, f"{project_alias}_사업기본정보.xlsx")
-                else:
-                    st.error("데이터 추출에 실패했습니다.")
-
-    # 대화 처리
-    if user_input := st.chat_input("RFP에 대해 질문하세요."):
-        st.chat_message("user").write(user_input)
-        st.session_state["messages"].append(HumanMessage(content=user_input))
-        with st.chat_message("assistant"):
-            search_res = st.session_state["retriever"].invoke(user_input)
-            ctx = "\n".join([d.page_content for d in search_res])
-            ans = ChatGoogleGenerativeAI(model="gemini-2.0-flash").invoke(
-                f"중소기업기술정보진흥원 명칭을 준수하고 축약해서 답변하라.\n내용: {ctx}\n질문: {user_input}"
-            ).content
-            st.write(ans); st.session_state["messages"].append(AIMessage(content=ans))
+                # 시트별 모듈 호출
+                write_sheet1(wb, data, t_fmt, h_fmt, c_fmt)
+                write_sheet2(wb, data, t_fmt, h_fmt, c_fmt)
+            
+            st.download_button("📥 다운로드", output.getvalue(), f"{project_alias}_제안요약.xlsx")
