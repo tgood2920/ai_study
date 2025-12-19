@@ -19,7 +19,7 @@ def get_basic_info_json(docs):
     [JSON 구조]:
     {{
         "basic": {{
-            "공식사업명": "", "수요기관": "", "사업기간": "", "사업비용": "", "공고일": "", "입찰방식": ""
+            "공식사업명": "", "수요기관": "", "사업기간": "", "공고일": "", "담당부서": "", "사업비용": "", "입찰방식": ""
         }},
         "managers": [
             {{"소속": "", "성명": "", "연락처": "", "이메일": ""}}
@@ -53,21 +53,33 @@ def create_basic_info_excel(data, project_alias):
         worksheet = workbook.add_worksheet('1. 사업기본정보')
         
         # --- 서식 정의 ---
-        title_fmt = workbook.add_format({'bold': True, 'bg_color': '#D9D9D9', 'border': 1}) # 섹션 제목
-        head_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1}) # 표 헤더
+        title_fmt = workbook.add_format({'bold': True}) # 섹션 제목
+        head_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1, 'border-top': 2}) # 표 헤더
         cell_fmt = workbook.add_format({'border': 1, 'text_wrap': True, 'valign': 'vcenter'})
         
         curr_row = 0
 
         # 1. 사업기본정보 섹션
         worksheet.write(curr_row, 0, " # 사업기본정보", title_fmt)
-        worksheet.merge_range(curr_row, 0, curr_row, 1, " # 사업기본정보", title_fmt)
+        worksheet.merge_range(curr_row, 0, curr_row, 3, " # 사업기본정보", title_fmt)
         curr_row += 1
-        for k, v in data.get('basic', {}).items():
-            worksheet.write(curr_row, 0, k, head_fmt)
-            worksheet.write(curr_row, 1, str(v), cell_fmt)
+        # for k, v in data.get('basic', {}).items():
+        #    worksheet.write(curr_row, 0, k, head_fmt)
+        #    worksheet.write(curr_row, 1, str(v), cell_fmt)
+        #    curr_row += 1
+        for i in range(0, len(basic_items), 2):
+            # 첫 번째 항목
+            worksheet.write(curr_row, 0, basic_items[i][0], head_fmt)
+            worksheet.write(curr_row, 1, str(basic_items[i][1]), cell_fmt)
+            # 두 번째 항목이 있다면
+            if i + 1 < len(basic_items):
+                worksheet.write(curr_row, 2, basic_items[i + 1][0], head_fmt)
+                worksheet.write(curr_row, 3, str(basic_items[i + 1][1]), cell_fmt)
             curr_row += 1
+
         curr_row += 1 # 빈 행
+
+
 
         # 2. 사업담당자 섹션
         worksheet.merge_range(curr_row, 0, curr_row, 3, " # 사업담당자", title_fmt)
