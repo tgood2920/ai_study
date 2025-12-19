@@ -3,6 +3,7 @@ import os
 import time
 import pandas as pd
 import io
+import json
 import re
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
@@ -10,9 +11,8 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_core.messages import HumanMessage, AIMessage
-from langchain_core.prompts import ChatPromptTemplate
 
-# 1. 초기 설정 및 보안
+# 1. 초기 설정
 load_dotenv()
 st.set_page_config(page_title="RFP 분석기 Pro", page_icon="📑", layout="wide")
 
@@ -21,10 +21,9 @@ if "messages" not in st.session_state:
 if "analysis_done" not in st.session_state:
     st.session_state["analysis_done"] = False
 
-# 중소기업기술정보진흥원 명칭 준수 안내
-st.title("📑 RFP 입찰 분석 및 스토리보드 생성기")
+st.title("📑 RFP 입찰 분석기 (사업기본정보 특화)")
 
-# 2. PDF 처리 로직
+# 2. PDF 처리
 @st.cache_resource
 def process_pdf(file_path):
     loader = PyPDFLoader(file_path)
@@ -35,36 +34,46 @@ def process_pdf(file_path):
     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
     return vectorstore.as_retriever(), docs
 
-# 3. RFP 분석 함수
+# 3. RFP 기본 요약 분석
 def analyze_rfp(docs, project_name):
     llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
     context = "\n\n".join([doc.page_content for doc in docs[:10]])
-    prompt = f"""너는 공공입찰 PM이야. 아래 RFP를 분석해. 
-    **중소기업기술정보진흥원** 명칭을 절대 줄여 쓰지 마.
+    prompt = f"""너는 공공입찰 전문가야. RFP를 분석해 핵심만 축약해서 보고해.
+    **중소기업기술정보진흥원** 명칭을 절대 줄이지 마.
     사업명: {project_name}\n내용: {context}
-    결과 항목: ## 1. 사업개요, 2. 리스크/독소조항, 3. 수주 전략"""
+    결과 항목: ## 1. 사업개요, 2. 리스크, 3. 핵심 요구사항"""
     return llm.invoke(prompt).content
 
-# 4. 스토리보드 데이터 생성 (사용자 엑셀 양식 동기화)
-def generate_storyboard_data(docs, project_name):
-    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
-    context = "\n\n".join([doc.page_content for doc in docs[:20]])
+# 4. [특화] 1. 사업기본정보 데이터 추출 (JSON 방식)
+def extract_basic_info(docs):
+    llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.1)
+    # 사업 개요가 집중된 앞부분 10페이지 참조
+    context = "\n\n".join([doc.page_content for doc in docs[:10]])
     
-    prompt = f"""너는 제안서 기획자야. RFP를 분석해 '제안목차' 데이터를 생성해.
-    **중소기업기술정보진흥원** 명칭을 준수해.
+    prompt = f"""RFP에서 다음 정보를 찾아 JSON 형식으로만 출력해. 
+    **중소기업기술정보진험원** 명칭을 절대 줄이지 마. 모든 설명은 최대한 축약해.
     
-    [출력 규칙]:
-    1. 반드시 파이프(|) 구분자를 사용한 CSV 형식으로만 출력해.
-    2. 마크다운 코드 블록(```)이나 설명은 절대 포함하지 마.
-    3. 헤더명: 목차|작성자|요구사항ID|작성 지침(필수)|평가배점|평가기준
+    필수 항목: 
+    - 공식사업명
+    - 수요기관
+    - 사업기간
+    - 사업비용 (부가세 포함 여부 명시)
+    - 공고일
+    - 입찰방식
     
-    사업명: {project_name}\n내용: {context}"""
-    return llm.invoke(prompt).content
+    [RFP 내용]: {context}
+    
+    출력 형식: {{ "공식사업명": "...", "수요기관": "...", "사업기간": "...", "사업비용": "...", "공고일": "...", "입찰방식": "..." }}
+    """
+    res = llm.invoke(prompt).content
+    # JSON 문자열만 추출
+    match = re.search(r'\{.*\}', res, re.DOTALL)
+    return match.group(0) if match else "{}"
 
 # --- UI 영역 ---
 with st.sidebar:
     st.header("⚙️ 설정")
-    project_name = st.text_input("사업명", value="입력해주세요")
+    project_name = st.text_input("프로젝트명", value="사업명을 입력하세요")
     uploaded_file = st.file_uploader("RFP PDF 업로드", type=["pdf"])
 
 if uploaded_file:
@@ -88,31 +97,30 @@ if uploaded_file:
         st.chat_message("user" if isinstance(msg, HumanMessage) else "assistant").write(msg.content)
 
     if st.session_state["analysis_done"]:
-        if st.button("📊 엑셀 스토리보드 생성"):
-            with st.spinner("엑셀 시트 구성 중..."):
-                raw = generate_storyboard_data(st.session_state["docs"], project_name)
+        st.divider()
+        if st.button("📁 1. 사업기본정보 엑셀 생성"):
+            with st.spinner("데이터 추출 중..."):
+                json_raw = extract_basic_info(st.session_state["docs"])
                 try:
-                    # 데이터 정제 로직 강화: 마크다운 및 서술문 제거
-                    clean = re.sub(r'```(?:csv|text)?|```', '', raw).strip()
-                    lines = [l for l in clean.split('\n') if '|' in l]
-                    
-                    df = pd.read_csv(io.StringIO("\n".join(lines)), sep="|")
+                    data_dict = json.loads(json_raw)
+                    # 데이터프레임 변환 (행태: 항목 | 내용)
+                    df = pd.DataFrame(list(data_dict.items()), columns=['항목', '내용'])
                     
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, sheet_name='5. 제안목차_변경')
-                        ws = writer.sheets['5. 제안목차_변경']
-                        for i, col in enumerate(df.columns):
-                            ws.set_column(i, i, 25) # 열 너비 조정
+                        df.to_excel(writer, index=False, sheet_name='1. 사업기본정보')
+                        ws = writer.sheets['1. 사업기본정보']
+                        ws.set_column(0, 0, 20)
+                        ws.set_column(1, 1, 60)
                     
-                    st.success("스토리보드 생성 완료!")
-                    st.dataframe(df)
-                    st.download_button("📥 엑셀 다운로드", output.getvalue(), f"{project_name}_스토리보드.xlsx")
-                except Exception as e:
-                    st.error("파싱 오류 발생. AI의 응답 형식이 바르지 않습니다.")
-                    st.text_area("원본 응답(디버깅용)", raw)
+                    st.success("1. 사업기본정보 시트 생성 완료!")
+                    st.table(df) # 깔끔한 표로 표시
+                    st.download_button("📥 엑셀 다운로드", output.getvalue(), f"{project_name}_사업기본정보.xlsx")
+                except:
+                    st.error("데이터 파싱 실패. 다시 시도해주세요.")
+                    st.write(json_raw)
 
-    if user_input := st.chat_input("질문하세요"):
+    if user_input := st.chat_input("RFP에 대해 더 궁금한 점은?"):
         st.chat_message("user").write(user_input)
         st.session_state["messages"].append(HumanMessage(content=user_input))
         with st.chat_message("assistant"):
@@ -121,4 +129,4 @@ if uploaded_file:
             st.write(ans)
             st.session_state["messages"].append(AIMessage(content=ans))
 else:
-    st.info("왼쪽에서 RFP PDF를 업로드해 주세요.")
+    st.info("RFP PDF를 업로드하면 분석을 시작합니다.")
