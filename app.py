@@ -11,8 +11,13 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # 1. 환경 설정
 load_dotenv()
-st.set_page_config(page_title="RFP 입찰 분석기 (Pro)", page_icon="📑", layout="wide") # 넓은 화면 사용
+st.set_page_config(page_title="RFP 입찰 분석기 (Pro)", page_icon="📑", layout="wide")
 
+# [추가할 코드] ★★★ 여기가 중요합니다! ★★★
+# 대화 기록 사물함이 없으면 미리 빈 통을 만들어둡니다.
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+    
 st.title("📑 제안요청서(RFP) 핵심 분석기")
 st.markdown("복잡한 공고문, **30초 만에 핵심만 파악**하고 **독소 조항**을 찾아냅니다.")
 
@@ -89,36 +94,37 @@ with st.sidebar:
     """)
 
 if uploaded_file is not None:
-    # [수정 1] 파일 이름이 바뀔 때마다 캐시가 다르게 인식하도록, 파일명을 포함시킵니다.
-    # 예: temp_rfp.pdf -> temp_rfp_삼성전자프로젝트.pdf
+    # 1. 파일 이름에 원래 이름을 붙여서 고유하게 만듭니다.
     temp_pdf_path = f"temp_rfp_{uploaded_file.name}"
     
     with open(temp_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     
-    # [수정 2] 파일이 바뀌었는지 확인하는 로직
-    # 세션에 저장된 'last_uploaded_file'과 지금 올린 파일 이름이 다르면 초기화!
+    # 2. 파일이 바뀌었는지 체크 (없으면 생성, 다르면 초기화)
     if "last_uploaded_file" not in st.session_state or st.session_state["last_uploaded_file"] != uploaded_file.name:
         st.session_state["last_uploaded_file"] = uploaded_file.name
-        st.session_state["messages"] = []     # 대화 기록 삭제
+        st.session_state["messages"] = []      # 대화 기록 초기화
         if "retriever" in st.session_state:
-            del st.session_state["retriever"] # 기존 검색기 삭제
+            del st.session_state["retriever"]  # 기존 학습 내용 삭제
 
     try:
-        # 파일이 바뀌었거나, 아직 학습 안 했으면 실행
+        # 3. 분석 시작 (retriever가 없을 때만 실행)
         if "retriever" not in st.session_state:
             with st.spinner(f"🔍 '{project_name}' 제안요청서를 꼼꼼히 분석 중입니다..."):
                 
-                # process_pdf 함수에 바뀐 파일명(temp_pdf_path)이 들어가므로
-                # @st.cache_resource가 "어? 새로운 파일이네?" 하고 다시 실행합니다.
                 retriever, docs = process_pdf(temp_pdf_path)
                 st.session_state["retriever"] = retriever
                 
                 # 분석 결과 생성
                 analysis_result = analyze_rfp(docs, project_name)
                 
-                initial_message = AIMessage(content=f"**[{project_name}]** 분석이 완료되었습니다. 핵심 내용은 아래와 같습니다. 👇\n\n{analysis_result}")
-                st.session_state["messages"].append(initial_message)
+                # [안전장치] 혹시 모르니 여기서도 append 하기 전에 리스트 확인
+                if "messages" not in st.session_state:
+                    st.session_state["messages"] = []
+
+                st.session_state["messages"].append(
+                    AIMessage(content=f"**[{project_name}]** 분석이 완료되었습니다. 핵심 내용은 아래와 같습니다. 👇\n\n{analysis_result}")
+                )
                 
         st.success("분석 완료! 채팅으로 상세 내용을 물어보세요.")
         
