@@ -89,34 +89,42 @@ with st.sidebar:
     """)
 
 if uploaded_file is not None:
-    temp_pdf_path = "temp_rfp.pdf"
+    # [수정 1] 파일 이름이 바뀔 때마다 캐시가 다르게 인식하도록, 파일명을 포함시킵니다.
+    # 예: temp_rfp.pdf -> temp_rfp_삼성전자프로젝트.pdf
+    temp_pdf_path = f"temp_rfp_{uploaded_file.name}"
+    
     with open(temp_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     
+    # [수정 2] 파일이 바뀌었는지 확인하는 로직
+    # 세션에 저장된 'last_uploaded_file'과 지금 올린 파일 이름이 다르면 초기화!
+    if "last_uploaded_file" not in st.session_state or st.session_state["last_uploaded_file"] != uploaded_file.name:
+        st.session_state["last_uploaded_file"] = uploaded_file.name
+        st.session_state["messages"] = []     # 대화 기록 삭제
+        if "retriever" in st.session_state:
+            del st.session_state["retriever"] # 기존 검색기 삭제
+
     try:
-        # 파일이 새로 올라오거나 리셋 버튼 누르면 실행
-        if "retriever" not in st.session_state or st.sidebar.button("🔄 다시 분석하기"):
+        # 파일이 바뀌었거나, 아직 학습 안 했으면 실행
+        if "retriever" not in st.session_state:
             with st.spinner(f"🔍 '{project_name}' 제안요청서를 꼼꼼히 분석 중입니다..."):
+                
+                # process_pdf 함수에 바뀐 파일명(temp_pdf_path)이 들어가므로
+                # @st.cache_resource가 "어? 새로운 파일이네?" 하고 다시 실행합니다.
                 retriever, docs = process_pdf(temp_pdf_path)
                 st.session_state["retriever"] = retriever
                 
                 # 분석 결과 생성
                 analysis_result = analyze_rfp(docs, project_name)
                 
-                st.session_state["messages"] = [
-                    AIMessage(content=f"**[{project_name}]** 분석이 완료되었습니다. 핵심 내용은 아래와 같습니다. 👇\n\n{analysis_result}")
-                ]
+                initial_message = AIMessage(content=f"**[{project_name}]** 분석이 완료되었습니다. 핵심 내용은 아래와 같습니다. 👇\n\n{analysis_result}")
+                st.session_state["messages"].append(initial_message)
+                
         st.success("분석 완료! 채팅으로 상세 내용을 물어보세요.")
         
     except Exception as e:
         st.error(f"오류 발생: {e}")
         st.stop()
-else:
-    for key in ["retriever", "messages"]:
-        if key in st.session_state:
-            del st.session_state[key]
-    st.info("👈 제안요청서(PDF)를 업로드하면 분석을 시작합니다.")
-    st.stop()
 
 # 채팅 인터페이스
 for msg in st.session_state["messages"]:
