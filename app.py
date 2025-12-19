@@ -1,6 +1,8 @@
 import streamlit as st
 import os
 import time
+import pandas as pd
+import io
 from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
@@ -9,19 +11,22 @@ from langchain_community.vectorstores import FAISS
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.prompts import ChatPromptTemplate
 
-# 1. 환경 설정
+# 1. 환경 설정 및 초기화
 load_dotenv()
-st.set_page_config(page_title="RFP 입찰 분석기 (Pro)", page_icon="📑", layout="wide")
+st.set_page_config(page_title="RFP 입찰 분석 & 스토리보드 생성기", page_icon="📑", layout="wide")
 
-# [추가할 코드] ★★★ 여기가 중요합니다! ★★★
-# 대화 기록 사물함이 없으면 미리 빈 통을 만들어둡니다.
+# [중요] 세션 상태 초기화 (KeyError 방지)
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
-    
-st.title("📑 제안요청서(RFP) 핵심 분석기")
-st.markdown("복잡한 공고문, **30초 만에 핵심만 파악**하고 **독소 조항**을 찾아냅니다.")
+if "analysis_done" not in st.session_state:
+    st.session_state["analysis_done"] = False
 
-# 2. PDF 처리 (기존과 동일)
+st.title("📑 RFP 분석 & 제안 스토리보드 생성기")
+st.markdown("""
+입찰 공고(RFP)를 분석하여 **핵심 요약**, **독소 조항 체크**, 그리고 **제안서 목차(Excel)**까지 한 번에 생성합니다.
+""")
+
+# 2. PDF 처리 및 벡터 DB 생성 함수
 @st.cache_resource
 def process_pdf(file_path):
     loader = PyPDFLoader(file_path)
@@ -32,154 +37,210 @@ def process_pdf(file_path):
     
     embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
+    
     return vectorstore.as_retriever(), docs
 
-# 3. [핵심] RFP 분석 전문 프롬프트
+# 3. RFP 분석 함수 (요약 및 리스크)
 def analyze_rfp(docs, project_name):
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3) # 분석은 창의성보다 정확성이 중요하므로 temperature를 낮춤
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
     
-    # 앞부분(공고 개요)과 뒷부분(평가 기준)을 골고루 보기 위해 앞 5페이지 + 뒤 3페이지 정도를 조합하면 좋지만, 
-    # 일단 심플하게 앞부분 5페이지만 읽어서 개요를 파악하게 합니다. (전체 분석은 RAG로 질문)
-    max_pages = 5
-    context_text = "\n\n".join([doc.page_content for doc in docs[:max_pages]])
+    # 앞부분(개요)과 뒷부분(평가) 등 주요 부분 참조
+    # 문서가 너무 길 경우를 대비해 앞 10페이지와 뒤 5페이지를 조합
+    ref_docs = docs[:10] + docs[-5:]
+    context_text = "\n\n".join([doc.page_content for doc in ref_docs])
 
     prompt = f"""
-    너는 공공사업 입찰 및 제안서 작성 전문가(Senior PM)야.
-    내가 업로드한 [제안요청서(RFP)]의 앞부분 내용을 바탕으로 아래 항목들을 아주 명확하게 정리해줘.
+    너는 20년 차 공공사업 제안 PM이야.
+    [제안요청서(RFP)]를 분석해서 핵심을 정리해줘.
     
-    [분석 대상 사업명]: {project_name}
+    [사업명]: {project_name}
+    [RFP 내용 일부]: {context_text}
     
-    [RFP 내용 일부]:
-    {context_text}
-    
-    [요청 사항 - 반드시 아래 포맷으로 출력]:
-    
-    ## 1. 🎯 사업 개요 요약
+    [출력 양식]:
+    ## 1. 🎯 사업 개요
     * **사업 목적**: (한 줄 요약)
-    * **사업 예산**: (금액이 보이면 적고, 안 보이면 '문서 내 검색 필요'라고 적음)
-    * **사업 기간**: (기간 명시)
-    * **주요 과업**: (핵심 요구사항 3~5가지 불렛 포인트)
+    * **예산 및 기간**: (예산 / 기간)
+    * **주요 과업**: (핵심 요구사항 3가지)
 
-    ## 2. ⚠️ 리스크 및 제약사항 (독소 조항 체크)
-    * **입찰 자격**: (특정 라이선스나 실적 요구가 있는지)
-    * **인력 요건**: (PM등급, 상주 여부 등 특이사항)
-    * **패널티/제약**: (지체상금률, 기술료 등 위험 요소가 보이면 기술)
-
-    ## 3. 📝 제안서 목차 추천 (초안)
-    (이 RFP에 맞춰서 우리가 작성해야 할 제안서의 목차(Index)를 1, 2, 3단계로 구성해줘)
+    ## 2. ⚠️ 리스크 및 제약사항 (독소조항)
+    * **입찰 자격**: (제한사항)
+    * **인력 요건**: (PM등급, 상주 여부 등)
+    * **페널티/제약**: (지체상금률, 기술이전 등 특이사항)
     
-    ---
-    **💡 Tip:** 더 자세한 기술 요구사항이나 평가 항목은 채팅창에 물어보시면 찾아드릴게요!
+    ## 3. 💡 제안 전략 가이드
+    * 이 사업을 수주하기 위해 강조해야 할 차별화 포인트 3가지.
     """
     response = llm.invoke(prompt)
     return response.content
 
+# 4. [New] 스토리보드(엑셀) 데이터 생성 함수
+def generate_storyboard_data(docs, project_name):
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.5)
+    
+    # 목차 생성을 위해 문서 전반적인 맥락 필요
+    ref_docs = docs[:15] + docs[-5:]
+    context_text = "\n\n".join([doc.page_content for doc in ref_docs])
+    
+    prompt = f"""
+    너는 제안서 작성을 총괄하는 메인 기획자야.
+    RFP 내용을 바탕으로 **상세 제안 목차(스토리보드)**를 엑셀로 만들려고 해.
+    일반적인 공공 SI 제안서 표준 목차(전략, 개요, 기술, 관리, 지원)를 따르되, 
+    RFP의 요구사항과 평가항목을 적절한 목차에 배치해줘.
+
+    [지시사항]:
+    1. **반드시 아래 CSV 형식(파이프라인 | 구분)으로만 출력해.** (사족 붙이지 마)
+    2. '핵심작성내용'에는 해당 목차에 들어가야 할 차별화 전략이나 필수 내용을 적어.
+    3. '예상페이지'는 전체 200페이지 기준으로 중요도에 따라 배분해.
+    
+    [CSV 출력 포맷]:
+    대목차|중목차|소목차|핵심작성내용(Key Message)|관련요구사항ID|예상페이지
+    I. 제안개요|1. 제안배경|1.1 추진배경 및 목적|사업 이해도 및 기대효과 강조|REQ-001|2
+    I. 제안개요|2. 사업범위|2.1 목표시스템 구성|To-Be 모델 아키텍처 제시|REQ-002|3
+    ... (계속 작성) ...
+    """
+    
+    response = llm.invoke(prompt)
+    return response.content
+
 # --- UI 구성 ---
+
 with st.sidebar:
-    st.header("📂 분석 파일 업로드")
-    
-    project_name = st.text_input("사업명 (프로젝트 이름)", value="차세대 정보시스템 구축 사업")
-    
-    st.info("💡 HWP 파일은 PDF로 변환해서 올려주세요.")
-    uploaded_file = st.file_uploader("RFP(PDF) 파일을 올려주세요", type=["pdf"])
+    st.header("📂 프로젝트 설정")
+    project_name = st.text_input("사업명", value="차세대 정보시스템 구축 사업")
+    uploaded_file = st.file_uploader("RFP(PDF) 업로드", type=["pdf"])
     
     st.divider()
-    st.markdown("### 🤖 사용 팁")
-    st.markdown("""
-    - **파일 업로드** 시 자동 분석이 시작됩니다.
-    - 분석 후 **채팅창**에 이렇게 물어보세요.
-        - "평가 기준표 보여줘"
-        - "서버 구축 요구사항이 뭐야?"
-        - "제출 서류 목록 정리해줘"
-    """)
+    st.info("💡 PDF를 업로드하면 자동으로 분석이 시작됩니다.")
 
+# 메인 로직
 if uploaded_file is not None:
-    # 1. 파일 이름에 원래 이름을 붙여서 고유하게 만듭니다.
-    temp_pdf_path = f"temp_rfp_{uploaded_file.name}"
-    
+    # 1. 파일 저장 및 세션 관리
+    temp_pdf_path = f"temp_{uploaded_file.name}"
     with open(temp_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     
-    # 2. 파일이 바뀌었는지 체크 (없으면 생성, 다르면 초기화)
+    # 파일 변경 감지 및 초기화
     if "last_uploaded_file" not in st.session_state or st.session_state["last_uploaded_file"] != uploaded_file.name:
         st.session_state["last_uploaded_file"] = uploaded_file.name
-        st.session_state["messages"] = []      # 대화 기록 초기화
+        st.session_state["messages"] = []
+        st.session_state["analysis_done"] = False
         if "retriever" in st.session_state:
-            del st.session_state["retriever"]  # 기존 학습 내용 삭제
+            del st.session_state["retriever"]
 
     try:
-        # 3. 분석 시작 (retriever가 없을 때만 실행)
+        # 2. PDF 처리 (한 번만 실행)
         if "retriever" not in st.session_state:
-            with st.spinner(f"🔍 '{project_name}' 제안요청서를 꼼꼼히 분석 중입니다..."):
-                
+            with st.spinner(f"🔍 '{project_name}' RFP 분석 중... (잠시만 기다려주세요)"):
                 retriever, docs = process_pdf(temp_pdf_path)
                 st.session_state["retriever"] = retriever
+                st.session_state["docs"] = docs # 엑셀 생성을 위해 원본 저장
                 
-                # 분석 결과 생성
+                # 3. 기본 분석 수행
                 analysis_result = analyze_rfp(docs, project_name)
                 
-                # [안전장치] 혹시 모르니 여기서도 append 하기 전에 리스트 확인
-                if "messages" not in st.session_state:
-                    st.session_state["messages"] = []
+                # 결과 메시지 저장
+                welcome_msg = AIMessage(content=f"**[{project_name}]** 분석 완료! 🚀\n\n{analysis_result}")
+                st.session_state["messages"].append(welcome_msg)
+                st.session_state["analysis_done"] = True
 
-                st.session_state["messages"].append(
-                    AIMessage(content=f"**[{project_name}]** 분석이 완료되었습니다. 핵심 내용은 아래와 같습니다. 👇\n\n{analysis_result}")
-                )
+        # --- 화면 표시 영역 ---
+        
+        # (1) 채팅창 (분석 결과 및 대화)
+        for msg in st.session_state["messages"]:
+            if isinstance(msg, HumanMessage):
+                st.chat_message("user").write(msg.content)
+            elif isinstance(msg, AIMessage):
+                st.chat_message("assistant", avatar="👨‍💼").write(msg.content)
+
+        # (2) [New] 스토리보드 생성 버튼 (분석 완료 시에만 표시)
+        if st.session_state["analysis_done"]:
+            st.divider()
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown("### 📊 제안 스토리보드(Excel) 만들기")
+                st.markdown("RFP 내용을 기반으로 **상세 목차, 페이지 계획, 핵심 전략**이 담긴 엑셀 파일을 생성합니다.")
+            
+            with col2:
+                generate_btn = st.button("스토리보드 생성 ✨")
+            
+            if generate_btn:
+                with st.spinner("AI가 제안 전략을 짜고 엑셀을 만드는 중입니다..."):
+                    docs = st.session_state["docs"]
+                    csv_data = generate_storyboard_data(docs, project_name)
+                    
+                    # 데이터 전처리 (CSV 파싱)
+                    try:
+                        valid_lines = [line for line in csv_data.split('\n') if '|' in line]
+                        clean_csv = "\n".join(valid_lines)
+                        
+                        df = pd.read_csv(io.StringIO(clean_csv), sep="|")
+                        
+                        # 엑셀 변환 (메모리 상에서 처리)
+                        output = io.BytesIO()
+                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                            df.to_excel(writer, index=False, sheet_name='제안목차_v1.0')
+                            
+                            # (선택) 엑셀 스타일링
+                            workbook = writer.book
+                            worksheet = writer.sheets['제안목차_v1.0']
+                            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#D7E4BC', 'border': 1})
+                            for col_num, value in enumerate(df.columns.values):
+                                worksheet.write(0, col_num, value, header_fmt)
+                                worksheet.set_column(col_num, col_num, 20) # 너비 조절
+
+                        excel_data = output.getvalue()
+                        
+                        st.success("생성 완료! 아래 버튼을 눌러 다운로드하세요.")
+                        st.dataframe(df) # 미리보기
+                        
+                        st.download_button(
+                            label="📥 엑셀 파일 다운로드 (.xlsx)",
+                            data=excel_data,
+                            file_name=f"{project_name}_제안스토리보드.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    except Exception as e:
+                        st.error("엑셀 생성 중 오류가 발생했습니다. AI 응답을 확인해주세요.")
+                        with st.expander("AI 원본 응답 보기"):
+                            st.write(csv_data)
+
+        # (3) 사용자 추가 질문 입력
+        if user_input := st.chat_input("RFP에 대해 궁금한 점을 물어보세요 (예: 평가 배점이 어떻게 돼?)"):
+            st.chat_message("user").write(user_input)
+            st.session_state["messages"].append(HumanMessage(content=user_input))
+
+            with st.chat_message("assistant", avatar="👨‍💼"):
+                message_placeholder = st.empty()
+                full_response = ""
                 
-        st.success("분석 완료! 채팅으로 상세 내용을 물어보세요.")
-        
+                with st.spinner("RFP 확인 중..."):
+                    retriever = st.session_state["retriever"]
+                    retrieved_docs = retriever.invoke(user_input)
+                    context = "\n\n".join([doc.page_content for doc in retrieved_docs])
+                
+                # 채팅용 프롬프트
+                prompt_template = ChatPromptTemplate.from_template(f"""
+                너는 제안 PM이야. RFP 내용을 근거로 답변해.
+                [참고 자료]: {{context}}
+                [질문]: {{input}}
+                """)
+                
+                llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
+                chain = prompt_template | llm
+                chunks = chain.stream({"context": context, "input": user_input})
+                
+                for chunk in chunks:
+                    if chunk.content:
+                        full_response += chunk.content
+                        message_placeholder.markdown(full_response + "▌")
+                        time.sleep(0.03)
+                message_placeholder.markdown(full_response)
+            
+            st.session_state["messages"].append(AIMessage(content=full_response))
+            
     except Exception as e:
-        st.error(f"오류 발생: {e}")
-        st.stop()
+        st.error(f"오류가 발생했습니다: {e}")
 
-# 채팅 인터페이스
-for msg in st.session_state["messages"]:
-    if isinstance(msg, HumanMessage):
-        st.chat_message("user").write(msg.content)
-    elif isinstance(msg, AIMessage):
-        st.chat_message("assistant", avatar="👨‍💼").write(msg.content) # 아바타를 직장인으로 변경
-
-# 사용자 질문 처리
-if user_input := st.chat_input("예: 기술 평가 항목이 뭐야? / 투입 인력 조건이 있어?"):
-    st.chat_message("user").write(user_input)
-    st.session_state["messages"].append(HumanMessage(content=user_input))
-
-    with st.chat_message("assistant", avatar="👨‍💼"):
-        message_placeholder = st.empty()
-        full_response = ""
-        
-        with st.spinner("제안요청서에서 관련 조항 찾는 중... 📑"):
-            retriever = st.session_state["retriever"]
-            retrieved_docs = retriever.invoke(user_input)
-            context = "\n\n".join([doc.page_content for doc in retrieved_docs])
-        
-        # 채팅용 프롬프트 (전문가 페르소나)
-        prompt_template = ChatPromptTemplate.from_template(f"""
-        너는 제안서 작성 전문가(PM)야. 
-        사용자는 이 사업을 수주하고 싶어 하는 제안 담당자야.
-        
-        [지시 사항]:
-        1. [참고 자료]인 제안요청서 내용에 근거해서 팩트 위주로 답변해.
-        2. 제안서 작성에 도움이 되는 팁(전략)을 한 줄씩 덧붙여주면 더 좋아.
-        3. 문서에 없는 내용은 "RFP에 명시되지 않았습니다"라고 솔직하게 말해.
-
-        [참고 자료]:
-        {{context}}
-        
-        담당자 질문: {{input}}
-        """)
-        
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
-        chain = prompt_template | llm
-        
-        chunks = chain.stream({"context": context, "input": user_input})
-        
-        for chunk in chunks:
-            if chunk.content:
-                full_response += chunk.content
-                message_placeholder.markdown(full_response + "▌")
-                time.sleep(0.03)
-        
-        message_placeholder.markdown(full_response)
-    
-    st.session_state["messages"].append(AIMessage(content=full_response))
+else:
+    # 파일 없을 때 안내
+    st.info("👈 왼쪽 사이드바에서 PDF 제안요청서를 업로드해주세요.")
