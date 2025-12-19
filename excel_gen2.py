@@ -20,10 +20,9 @@ def write_sheet2(workbook, data, title_fmt, head_fmt, cell_fmt):
 
     ws.write(curr_row, 1, "사업명", label_fmt)
     ws.merge_range(curr_row, 2, curr_row, 3, str(p_data.get("project_name", "")), cell_fmt)
-    curr_row += 2 # 이미지처럼 한 칸 띄움
+    curr_row += 2
 
     ws.write(curr_row, 1, "제안서", label_fmt)
-    ws.merge_range(curr_row, 1, "제안서", cat_fmt)
     curr_row += 1
     ws.write(curr_row, 1, "제안서 제출 방식", label_fmt)
     ws.merge_range(curr_row, 2, curr_row, 3, str(p_data.get("sub_method", "")), cell_fmt)
