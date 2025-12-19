@@ -11,10 +11,12 @@ from langchain_core.prompts import ChatPromptTemplate
 
 # 1. 환경 설정
 load_dotenv()
-st.set_page_config(page_title="만능 AI 튜터", page_icon="🎓")
-st.title("🎓 무엇이든 가르쳐 드려요!")
+st.set_page_config(page_title="RFP 입찰 분석기 (Pro)", page_icon="📑", layout="wide") # 넓은 화면 사용
 
-# 2. PDF 처리 및 벡터 DB 생성
+st.title("📑 제안요청서(RFP) 핵심 분석기")
+st.markdown("복잡한 공고문, **30초 만에 핵심만 파악**하고 **독소 조항**을 찾아냅니다.")
+
+# 2. PDF 처리 (기존과 동일)
 @st.cache_resource
 def process_pdf(file_path):
     loader = PyPDFLoader(file_path)
@@ -27,140 +29,136 @@ def process_pdf(file_path):
     vectorstore = FAISS.from_documents(documents=splits, embedding=embeddings)
     return vectorstore.as_retriever(), docs
 
-# 3. 요약 및 퀴즈 생성 (범용 버전)
-def generate_summary_and_quiz(docs, topic, level):
-    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
+# 3. [핵심] RFP 분석 전문 프롬프트
+def analyze_rfp(docs, project_name):
+    llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3) # 분석은 창의성보다 정확성이 중요하므로 temperature를 낮춤
     
-    max_pages = 3
+    # 앞부분(공고 개요)과 뒷부분(평가 기준)을 골고루 보기 위해 앞 5페이지 + 뒤 3페이지 정도를 조합하면 좋지만, 
+    # 일단 심플하게 앞부분 5페이지만 읽어서 개요를 파악하게 합니다. (전체 분석은 RAG로 질문)
+    max_pages = 5
     context_text = "\n\n".join([doc.page_content for doc in docs[:max_pages]])
 
-    # 프롬프트에 '주제(topic)'와 '대상(level)'을 동적으로 넣습니다.
     prompt = f"""
-    너는 지금부터 유능한 '{topic}' 선생님이야.
-    내 학생의 수준은 '{level}'이야. 이 수준에 딱 맞춰서 설명해야 해.
+    너는 공공사업 입찰 및 제안서 작성 전문가(Senior PM)야.
+    내가 업로드한 [제안요청서(RFP)]의 앞부분 내용을 바탕으로 아래 항목들을 아주 명확하게 정리해줘.
     
-    아래 [교재 내용]을 보고 수업을 준비해줘.
+    [분석 대상 사업명]: {project_name}
     
-    [교재 내용]:
+    [RFP 내용 일부]:
     {context_text}
     
-    [요청 사항]:
-    1. **오늘의 핵심 요약**: 이 교재의 핵심 내용을 3가지로 요약해줘.
-    2. **맞춤형 퀴즈**: '{level}' 수준에 맞는 3지 선다형 퀴즈를 1개 만들어줘.
+    [요청 사항 - 반드시 아래 포맷으로 출력]:
     
-    출력 형식:
-    ---
-    ### 📝 {topic} 핵심 요약 ({level}용)
-    (요약 내용)
+    ## 1. 🎯 사업 개요 요약
+    * **사업 목적**: (한 줄 요약)
+    * **사업 예산**: (금액이 보이면 적고, 안 보이면 '문서 내 검색 필요'라고 적음)
+    * **사업 기간**: (기간 명시)
+    * **주요 과업**: (핵심 요구사항 3~5가지 불렛 포인트)
+
+    ## 2. ⚠️ 리스크 및 제약사항 (독소 조항 체크)
+    * **입찰 자격**: (특정 라이선스나 실적 요구가 있는지)
+    * **인력 요건**: (PM등급, 상주 여부 등 특이사항)
+    * **패널티/제약**: (지체상금률, 기술료 등 위험 요소가 보이면 기술)
+
+    ## 3. 📝 제안서 목차 추천 (초안)
+    (이 RFP에 맞춰서 우리가 작성해야 할 제안서의 목차(Index)를 1, 2, 3단계로 구성해줘)
     
-    ### 🧩 팝 퀴즈!
-    (문제)
-    1. (보기)
-    2. (보기)
-    3. (보기)
     ---
+    **💡 Tip:** 더 자세한 기술 요구사항이나 평가 항목은 채팅창에 물어보시면 찾아드릴게요!
     """
     response = llm.invoke(prompt)
     return response.content
 
 # --- UI 구성 ---
 with st.sidebar:
-    st.header("학습 설정 ⚙️")
+    st.header("📂 분석 파일 업로드")
     
-    # [New] 과목명과 난이도를 사용자가 직접 고르게 합니다.
-    topic = st.text_input("공부할 주제를 입력하세요", value="일반 상식")
-    level = st.selectbox("학습 난이도(대상)", ["초등학생", "중고등학생", "대학생/전문가", "일반인"])
+    project_name = st.text_input("사업명 (프로젝트 이름)", value="차세대 정보시스템 구축 사업")
+    
+    st.info("💡 HWP 파일은 PDF로 변환해서 올려주세요.")
+    uploaded_file = st.file_uploader("RFP(PDF) 파일을 올려주세요", type=["pdf"])
     
     st.divider()
-    st.header("교재 업로드 📤")
-    uploaded_file = st.file_uploader("PDF 교재를 올려주세요", type=["pdf"])
+    st.markdown("### 🤖 사용 팁")
+    st.markdown("""
+    - **파일 업로드** 시 자동 분석이 시작됩니다.
+    - 분석 후 **채팅창**에 이렇게 물어보세요.
+        - "평가 기준표 보여줘"
+        - "서버 구축 요구사항이 뭐야?"
+        - "제출 서류 목록 정리해줘"
+    """)
 
 if uploaded_file is not None:
-    temp_pdf_path = "temp_lesson.pdf"
+    temp_pdf_path = "temp_rfp.pdf"
     with open(temp_pdf_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
     
     try:
-        # 파일이 바뀌거나 설정이 바뀌면 리셋하기 위해 session_state 체크 로직을 단순화했습니다.
-        if "retriever" not in st.session_state or st.sidebar.button("설정 적용 및 다시 학습"):
-            with st.spinner(f"AI가 '{topic}' 과목을 '{level}' 수준으로 공부하는 중... 📚"):
+        # 파일이 새로 올라오거나 리셋 버튼 누르면 실행
+        if "retriever" not in st.session_state or st.sidebar.button("🔄 다시 분석하기"):
+            with st.spinner(f"🔍 '{project_name}' 제안요청서를 꼼꼼히 분석 중입니다..."):
                 retriever, docs = process_pdf(temp_pdf_path)
                 st.session_state["retriever"] = retriever
                 
-                # 요약본 생성 시 설정값 전달
-                summary = generate_summary_and_quiz(docs, topic, level)
+                # 분석 결과 생성
+                analysis_result = analyze_rfp(docs, project_name)
                 
                 st.session_state["messages"] = [
-                    AIMessage(content=f"안녕하세요! 저는 오늘 여러분의 **{topic}** 선생님입니다.\n**{level}** 눈높이에 맞춰 수업할게요! 😎\n\n{summary}")
+                    AIMessage(content=f"**[{project_name}]** 분석이 완료되었습니다. 핵심 내용은 아래와 같습니다. 👇\n\n{analysis_result}")
                 ]
-        st.success("준비 완료!")
+        st.success("분석 완료! 채팅으로 상세 내용을 물어보세요.")
         
     except Exception as e:
         st.error(f"오류 발생: {e}")
         st.stop()
 else:
-    # 파일 없으면 초기화
     for key in ["retriever", "messages"]:
         if key in st.session_state:
             del st.session_state[key]
-    st.info("👈 왼쪽에서 주제를 적고 PDF를 업로드해주세요.")
+    st.info("👈 제안요청서(PDF)를 업로드하면 분석을 시작합니다.")
     st.stop()
 
-# 채팅 기록 표시
+# 채팅 인터페이스
 for msg in st.session_state["messages"]:
     if isinstance(msg, HumanMessage):
         st.chat_message("user").write(msg.content)
     elif isinstance(msg, AIMessage):
-        st.chat_message("assistant").write(msg.content)
+        st.chat_message("assistant", avatar="👨‍💼").write(msg.content) # 아바타를 직장인으로 변경
 
-# 사용자 입력 처리
-if user_input := st.chat_input("궁금한 점을 물어보세요!"):
+# 사용자 질문 처리
+if user_input := st.chat_input("예: 기술 평가 항목이 뭐야? / 투입 인력 조건이 있어?"):
     st.chat_message("user").write(user_input)
     st.session_state["messages"].append(HumanMessage(content=user_input))
 
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar="👨‍💼"):
         message_placeholder = st.empty()
         full_response = ""
         
-        with st.spinner("교재 내용 찾아보는 중..."):
+        with st.spinner("제안요청서에서 관련 조항 찾는 중... 📑"):
             retriever = st.session_state["retriever"]
             retrieved_docs = retriever.invoke(user_input)
             context = "\n\n".join([doc.page_content for doc in retrieved_docs])
         
-        # 대화 기록 (기억력)
-        chat_history = []
-        for msg in st.session_state["messages"][-3:]: 
-            role = "AI 선생님" if isinstance(msg, AIMessage) else "학생"
-            chat_history.append(f"{role}: {msg.content}")
-        history_text = "\n".join(chat_history)
-
-        # [New] 프롬프트에도 topic과 level을 주입하여 페르소나 유지
+        # 채팅용 프롬프트 (전문가 페르소나)
         prompt_template = ChatPromptTemplate.from_template(f"""
-        너는 유능하고 친절한 '{topic}' 선생님이야.
-        학습자는 '{level}' 수준이야. 어려운 말 쓰지 말고 눈높이에 맞춰서 설명해.
+        너는 제안서 작성 전문가(PM)야. 
+        사용자는 이 사업을 수주하고 싶어 하는 제안 담당자야.
         
         [지시 사항]:
-        1. [대화 기록]을 참고해서 문맥을 이어가.
-        2. 반드시 [참고 자료]에 기반해서 대답해. 모르면 모른다고 해.
-        3. 설명은 명확하고 친절하게.
-
-        [대화 기록]:
-        {{history}}
+        1. [참고 자료]인 제안요청서 내용에 근거해서 팩트 위주로 답변해.
+        2. 제안서 작성에 도움이 되는 팁(전략)을 한 줄씩 덧붙여주면 더 좋아.
+        3. 문서에 없는 내용은 "RFP에 명시되지 않았습니다"라고 솔직하게 말해.
 
         [참고 자료]:
         {{context}}
         
-        질문: {{input}}
+        담당자 질문: {{input}}
         """)
         
-        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.7)
+        llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
         chain = prompt_template | llm
         
-        chunks = chain.stream({
-            "history": history_text, 
-            "context": context, 
-            "input": user_input
-        })
+        chunks = chain.stream({"context": context, "input": user_input})
         
         for chunk in chunks:
             if chunk.content:
