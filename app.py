@@ -57,13 +57,13 @@ if uploaded_file:
     if st.session_state["analysis_done"]:
         st.divider()
         if st.button("📊 1. 사업기본정보 엑셀 생성"):
-            with st.spinner("이미지 양식에 맞춰 구성 중..."):
+            with st.spinner("스토리보드 양식에 맞춰 구성 중..."):
                 data_dict = get_basic_info_json(st.session_state["docs"])
                 excel_file = create_basic_info_excel(data_dict, project_alias)
                 
                 if excel_file:
                     st.success("1번 시트 생성이 완료되었습니다.")
-                    st.download_button("📥 엑셀 다운로드", excel_file, f"{project_alias}_기본정보.xlsx")
+                    st.download_button("📥 엑셀 다운로드", excel_file, f"{project_alias}_사업기본정보.xlsx")
                 else:
                     st.error("데이터 추출에 실패했습니다.")
 

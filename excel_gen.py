@@ -19,7 +19,7 @@ def get_basic_info_json(docs):
     [JSON 구조]:
     {{
         "basic": {{
-            "공식사업명": "", "수요기관": "", "사업기간": "", "공고일": "", "담당부서": "", "사업비용": "", "입찰방식": ""
+            "공식사업명": "", "수요기관": "", "공고일": "", "사업비용": "", "사업기간": "",  "담당부서": "",  "입찰방식": ""
         }},
         "managers": [
             {{"소속": "", "성명": "", "연락처": "", "이메일": ""}}
@@ -117,8 +117,13 @@ def create_basic_info_excel(data, project_alias):
         curr_row += 1
         for i in data.get('issues', []):
             worksheet.write(curr_row, 0, i.get("구분", ""), cell_fmt)
+            
+            if "주요사항" in basic_data:
+            worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["주요사항"]), cell_fmt)
             worksheet.write(curr_row, 1, i.get("주요사항", ""), cell_fmt)
-            worksheet.write(curr_row, 2, i.get("비고", ""), cell_fmt)
+            basic_data.pop("주요사항")
+
+            worksheet.write(curr_row, 3, i.get("비고", ""), cell_fmt)
             curr_row += 1
         curr_row += 1
 
@@ -131,8 +136,13 @@ def create_basic_info_excel(data, project_alias):
         curr_row += 1
         for s in data.get('status', []):
             worksheet.write(curr_row, 0, s.get("일자", ""), cell_fmt)
+            
+            if "주요사항" in basic_data:
+            worksheet.merge_range(curr_row, 1, curr_row, 3, str(basic_data["주요사항"]), cell_fmt)
             worksheet.write(curr_row, 1, s.get("주요사항", ""), cell_fmt)
-            worksheet.write(curr_row, 2, s.get("비고", ""), cell_fmt)
+            basic_data.pop("주요사항")
+
+            worksheet.write(curr_row, 3, s.get("비고", ""), cell_fmt)
             curr_row += 1
 
         # 열 너비 조정
